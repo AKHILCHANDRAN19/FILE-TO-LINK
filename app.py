@@ -35,7 +35,7 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     workers=4,
-    max_concurrent_transmissions=2  # Prevent overload
+    max_concurrent_transmissions=2
 )
 
 # FastAPI App (unchanged)
@@ -45,7 +45,7 @@ app = FastAPI(
     redoc_url=None
 )
 
-# Helper Functions (unchanged)
+# --- All your helper functions and message handlers remain exactly the same ---
 def generate_link_id():
     return secrets.token_urlsafe(12)
 
@@ -57,7 +57,6 @@ async def store_file(link_id, message_id, file_name, file_size):
         "expires": datetime.now() + timedelta(hours=24)
     }
 
-# Telegram Handlers (unchanged)
 @bot.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     logger.info(f"✅ START COMMAND from {message.from_user.id}")
@@ -66,27 +65,18 @@ async def start(client, message):
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo))
 async def handle_file(client, message):
     logger.info(f"📁 FILE RECEIVED from {message.from_user.id}")
-    
     status_msg = await message.reply_text("⏳ Processing...")
-    
     try:
-        # Get file info
-        if message.document:
-            file = message.document
-        elif message.video:
-            file = message.video
-        elif message.audio:
-            file = message.audio
-        elif message.photo:
-            file = message.photo[-1]
+        if message.document: file = message.document
+        elif message.video: file = message.video
+        elif message.audio: file = message.audio
+        elif message.photo: file = message.photo[-1]
+        else: return
         
         file_name = getattr(file, 'file_name', f"file_{secrets.token_hex(4)}")
         file_size = getattr(file, 'file_size', 0)
         
-        # Forward to bin channel
         forwarded = await message.forward(BIN_CHANNEL)
-        
-        # Generate link
         link_id = generate_link_id()
         await store_file(link_id, forwarded.id, file_name, file_size)
         
@@ -94,22 +84,14 @@ async def handle_file(client, message):
         download_url = f"{base_url}/download/{link_id}"
         
         await status_msg.edit_text(
-            f"✅ **File Ready!**\n\n"
-            f"📄 **Name:** `{file_name}`\n"
-            f"💾 **Size:** `{file_size / 1024 / 1024:.2f} MB`\n"
-            f"🔗 **Link:** `{download_url}`",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬇️ Download", url=download_url)]
-            ])
+            f"✅ **File Ready!**\n\n📄 **Name:** `{file_name}`\n💾 **Size:** `{file_size / 1024 / 1024:.2f} MB`\n🔗 **Link:** `{download_url}`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ Download", url=download_url)]])
         )
-        
         logger.info(f"🔗 Link generated: {download_url}")
-        
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         await status_msg.edit_text("❌ Error processing file.")
 
-# FastAPI Endpoints (unchanged)
 @app.get("/")
 async def root():
     return {"status": "operational", "bot": "listening"}
@@ -117,19 +99,13 @@ async def root():
 @app.get("/download/{link_id}")
 async def download(link_id: str):
     file_info = file_storage.get(link_id)
-    
     if not file_info or datetime.now() > file_info["expires"]:
         raise HTTPException(status_code=404, detail="File expired or not found")
     
     try:
-        # This part remains the same as your original logic
         async def stream_generator():
-            async for chunk in bot.stream_media(
-                message=await bot.get_messages(BIN_CHANNEL, file_info["message_id"]),
-                limit=256*1024
-            ):
+            async for chunk in bot.stream_media(message=await bot.get_messages(BIN_CHANNEL, file_info["message_id"]), limit=256*1024):
                 yield chunk
-
         return StreamingResponse(
             stream_generator(),
             media_type="application/octet-stream",
@@ -138,30 +114,41 @@ async def download(link_id: str):
                 "Content-Length": str(file_info["file_size"]),
             }
         )
-        
     except Exception as e:
         logger.error(f"❌ Stream error: {e}")
         raise HTTPException(status_code=500, detail="Streaming failed")
 
-# --- NEW PRODUCTION-READY STARTUP LOGIC ---
 
-async def run_bot():
-    """Run the Pyrogram bot in the background."""
+# --- NEW, CORRECTED STARTUP LOGIC ---
+async def main():
+    """Starts the web server and the bot, ensuring the web server is live first."""
+    
+    # Configure Uvicorn
+    config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    
+    # Start the web server in the background
+    web_server_task = asyncio.create_task(server.serve())
+    logger.info("🌐 Web server task created and starting...")
+    
+    # Start the bot
     async with bot:
+        logger.info("🤖 Bot context entered - now listening")
         logger.info("="*50)
-        logger.info("🔥 BOT IS ACTIVE - LISTENING FOR MESSAGES")
+        logger.info("🔥 BOT IS ACTIVE - SEND /start NOW")
         logger.info("="*50)
+        
+        # Keep both the web server and the bot running
         await idle()
 
-@app.on_event("startup")
-async def startup_event():
-    """Create a background task to run the bot when the web server starts."""
-    logger.info("🚀 Web server started. Initializing bot in the background...")
-    asyncio.create_task(run_bot())
-    logger.info("🤖 Bot startup task has been created.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Gracefully stop the bot when the web server shuts down."""
-    logger.info("🛑 Web server is shutting down. Stopping bot...")
-    await bot.stop()
+if __name__ == "__main__":
+    print("🚀 Starting application...")
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 Shutting down...")
