@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-file-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: API_ID
+        value: 2819362
+      - key: API_HASH
+        value: 578ce3d09fadd539544a327c45b55ee4
+      - key: BOT_TOKEN
+        value: 8203006611:AAHJf1Dc5jjIiPW0--AGgbUfK8H-QgVamt8
+      - key: BIN_CHANNEL
+        value: -1003286196892
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    autoDeploy: true
+    plan: free
