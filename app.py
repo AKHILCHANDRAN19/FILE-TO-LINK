@@ -1,28 +1,28 @@
 import os
+import threading
 import asyncio
-from pyrogram import Client, filters, idle
+import time
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import ChannelInvalid
 from aiohttp import web
 import secrets
-from datetime import datetime, timedelta
 import logging
 
-# Configure logging
+# Configure logging to see EVERYTHING
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Your credentials
+# Your credentials from render.yaml
 API_ID = int(os.environ.get("API_ID", 2819362))
 API_HASH = os.environ.get("API_HASH", "578ce3d09fadd539544a327c45b55ee4")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8203006611:AAHJf1Dc5jjIiPW0--AGgbUfK8H-QgVamt8")
 BIN_CHANNEL = int(os.environ.get("BIN_CHANNEL", -1003286196892))
 PORT = int(os.environ.get("PORT", 8000))
 
-# Storage
+# Storage for files
 file_storage = {}
 
 # Initialize Pyrogram Client
@@ -35,32 +35,29 @@ bot = Client(
 )
 
 def generate_link_id():
+    """Generate secure unique link ID"""
     return secrets.token_urlsafe(12)
 
-async def store_file(link_id, message_id, file_name, file_size):
-    file_storage[link_id] = {
-        "message_id": message_id,
-        "file_name": file_name,
-        "file_size": file_size,
-        "expires": datetime.now() + timedelta(hours=24)
-    }
+# CRITICAL: Define handlers BEFORE starting bot
 
-# Telegram Handlers (CRITICAL: Defined BEFORE startup)
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
-    logger.info(f"✅ START FROM USER {message.from_user.id}")
+    """Handle /start command"""
+    logger.info(f"✅✅✅ START COMMAND RECEIVED FROM USER {message.from_user.id} ✅✅✅")
     await message.reply_text(
-        "🎉 **Bot is ONLINE!**\n\nSend me any file to generate a high-speed download link."
+        "🎉 **BOT IS FULLY OPERATIONAL!**\n\n"
+        "Send me any file up to 2GB and I'll generate a direct download link."
     )
 
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo))
 async def file_handler(client, message):
-    logger.info(f"📁 FILE RECEIVED from {message.from_user.id}")
+    """Handle incoming files"""
+    logger.info(f"✅✅✅ FILE RECEIVED FROM USER {message.from_user.id} ✅✅✅")
     
     status_msg = await message.reply_text("⏳ Processing your file...")
     
     try:
-        # Get file details
+        # Get file object
         if message.document:
             file = message.document
         elif message.video:
@@ -68,7 +65,7 @@ async def file_handler(client, message):
         elif message.audio:
             file = message.audio
         elif message.photo:
-            file = message.photo[-1]
+            file = message.photo[-1]  # Highest quality
         
         file_name = getattr(file, 'file_name', f'file_{secrets.token_hex(4)}')
         file_size = getattr(file, 'file_size', 0)
@@ -76,12 +73,16 @@ async def file_handler(client, message):
         # Forward to bin channel
         forwarded = await message.forward(BIN_CHANNEL)
         
-        # Generate link
+        # Generate download link
         link_id = generate_link_id()
-        await store_file(link_id, forwarded.id, file_name, file_size)
+        file_storage[link_id] = {
+            "message_id": forwarded.id,
+            "file_name": file_name,
+            "file_size": file_size
+        }
         
         # Create download URL
-        base_url = os.environ.get("RENDER_EXTERNAL_URL", f"https://file-to-link-5haa.onrender.com")
+        base_url = f"https://file-to-link-5haa.onrender.com"
         download_url = f"{base_url}/download/{link_id}"
         
         await status_msg.edit_text(
@@ -97,31 +98,35 @@ async def file_handler(client, message):
         logger.info(f"🔗 Link generated: {download_url}")
         
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
+        logger.error(f"❌ Error processing file: {e}")
         await status_msg.edit_text("❌ Error processing file.")
 
-# Aiohttp Web Server
+# Aiohttp Web Handlers
 async def homepage(request):
+    """Homepage endpoint"""
     return web.json_response({
         "status": "operational",
-        "bot": "listening",
-        "url": "https://file-to-link-5haa.onrender.com"
+        "bot": "listening for messages",
+        "service": "Telegram File to Link Bot"
     })
 
 async def health_check(request):
+    """Health check for Render"""
     return web.json_response({"status": "healthy"})
 
 async def download_file(request):
+    """Stream file from Telegram"""
     link_id = request.match_info['link_id']
     file_info = file_storage.get(link_id)
     
-    if not file_info or datetime.now() > file_info["expires"]:
+    if not file_info:
         return web.Response(status=404, text="File not found or expired")
     
     try:
         # Get message from bin channel
         message = await bot.get_messages(BIN_CHANNEL, file_info["message_id"])
         
+        # Get file object
         if message.document:
             file = message.document
         elif message.video:
@@ -131,17 +136,19 @@ async def download_file(request):
         elif message.photo:
             file = message.photo[-1]
         
-        # Stream file
+        # Start streaming response
         response = web.StreamResponse(
             status=200,
             headers={
                 'Content-Disposition': f'attachment; filename="{file_info["file_name"]}"',
                 'Content-Length': str(file_info["file_size"]),
+                'Content-Type': 'application/octet-stream',
                 'Accept-Ranges': 'bytes',
             }
         )
         await response.prepare(request)
         
+        # Stream in chunks (256KB for memory efficiency)
         async for chunk in bot.stream_media(file, limit=256 * 1024):
             await response.write(chunk)
         
@@ -149,52 +156,61 @@ async def download_file(request):
         return response
         
     except Exception as e:
-        logger.error(f"❌ Stream error: {e}")
-        return web.Response(status=500, text="Streaming error")
+        logger.error(f"❌ Streaming error: {e}")
+        return web.Response(status=500, text="Error streaming file")
 
-# Aiohttp App Setup
-async def web_server():
-    """Create and return aiohttp app"""
+def create_web_app():
+    """Create aiohttp application"""
     app = web.Application()
     app.router.add_get('/', homepage)
     app.router.add_get('/health', health_check)
     app.router.add_get('/download/{link_id}', download_file)
     return app
 
-# MAIN STARTUP FUNCTION (Like the Working Bot)
-async def start_bot_and_server():
-    """
-    EXACT pattern from Auto_Filter_Bot-DreamXBotz:
-    1. Start and bind web server FIRST
-    2. Call idle() AFTER server is live
-    """
-    
-    logger.info("="*60)
-    logger.info("🚀 Starting Bot and Web Server...")
-    logger.info("="*60)
-    
-    # STEP 1: Start web server (this completes BEFORE idle)
-    logger.info(f"🌐 Starting aiohttp web server on port {PORT}...")
-    runner = web.AppRunner(await web_server())
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', PORT)
-    await site.start()
-    logger.info(f"✅ Web server is LIVE at https://file-to-link-5haa.onrender.com")
-    
-    # STEP 2: Start Pyrogram bot
-    logger.info("🤖 Starting Pyrogram bot...")
-    await bot.start()
-    logger.info("✅ Pyrogram bot started and listening for messages")
-    
-    # STEP 3: Call idle() ONLY after both are running
-    logger.info("⏳ Bot is now idle and processing updates...")
-    await idle()
-    
-    # Cleanup on shutdown
-    await runner.cleanup()
-
-if __name__ == "__main__":
+# Web Server Thread (daemon keeps it alive)
+def run_web_server():
+    """Run web server in a separate daemon thread"""
     try:
-        asyncio.run(start_bot_and_server())
-    except KeyboardInterrupt:
-        logger.info("\n👋 Bot stopped by user")
+        logger.info(f"🌐 Starting aiohttp web server on port {PORT}...")
+        
+        # Create event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Setup and start server
+        app = create_web_app()
+        runner = web.AppRunner(app)
+        loop.run_until_complete(runner.setup())
+        
+        site = web.TCPSite(runner, '0.0.0.0', PORT)
+        loop.run_until_complete(site.start())
+        
+        logger.info(f"✅ Web server is LIVE at https://file-to-link-5haa.onrender.com")
+        
+        # Keep thread running
+        loop.run_forever()
+        
+    except Exception as e:
+        logger.error(f"❌ Web server failed to start: {e}")
+
+# MAIN ENTRY POINT
+if __name__ == "__main__":
+    logger.info("="*60)
+    logger.info("🚀 INITIALIZING BOT AND WEB SERVER")
+    logger.info("="*60)
+    
+    # Start web server in background thread
+    logger.info("🔄 Starting web server in background thread...")
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    
+    # Give web server a moment to start
+    time.sleep(2)
+    
+    logger.info("🤖 Starting Pyrogram bot in MAIN THREAD...")
+    logger.info("📡 Bot is connecting to Telegram and listening for updates...")
+    
+    # Run bot - THIS IS THE KEY: bot.run() manages its own event loop
+    bot.run()
+    
+    logger.info("👋 Bot has stopped. Exiting...")
