@@ -18,7 +18,7 @@ import logging
 API_ID = int(os.environ.get("API_ID", 2819362))
 API_HASH = os.environ.get("API_HASH", "578ce3d09fadd539544a327c45b55ee4")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8203006611:AAHJf1Dc5jjIiPW0--AGgbUfK8H-QgVamt8")
-BIN_CHANNEL = int(os.environ.get("BIN_CHANNEL", -1003286196892))
+BIN_CHANNEL = int(os.environ.get("BIN_CHANNEL", -1001854240817))
 PORT = int(os.environ.get("PORT", 8000))
 
 # Owner Configuration
@@ -108,7 +108,7 @@ async def start_command(client: Client, message: Message):
         await message.reply_text(
             "⛔ **This bot is private.**\n\n"
             "Only authorized users can generate download links.\n\n"
-            "👑 **Contact the owner** for access: @yourusername"
+            "👑 **Contact the owner** for access: @FILMWORLDOFFICIA"
         )
         return
     
@@ -124,8 +124,8 @@ async def start_command(client: Client, message: Message):
     
     # Professional button layout
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👑 Owner", url="https://t.me/yourusername")],
-        [InlineKeyboardButton("📢 Updates Channel", url="https://t.me/yourchannel")],
+        [InlineKeyboardButton("👑 Owner", url="https://t.me/FILMWORLDOFFICIA")],
+        [InlineKeyboardButton("📢 Updates Channel", url="https://t.me/FILMWORLDOFFI")],
         [InlineKeyboardButton("❓ Help", callback_data="help")]
     ])
     
