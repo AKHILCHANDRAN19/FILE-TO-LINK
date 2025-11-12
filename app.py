@@ -2,7 +2,12 @@ import os
 import threading
 import asyncio
 import time
-from datetime import datetime, timedelta
+import re
+import tempfile
+import subprocess
+import shutil
+import math
+from datetime import datetime
 from pyrogram import Client, filters, enums
 from pyrogram.types import (
     Message, 
@@ -12,13 +17,9 @@ from pyrogram.types import (
     InputMediaPhoto
 )
 from aiohttp import web, ClientSession
+import aiohttp
 import secrets
 import logging
-import tempfile
-import subprocess
-import shutil
-import math
-import aiohttp
 
 # ==================== CONFIGURATION ====================
 API_ID = int(os.environ.get("API_ID", 2819362))
@@ -26,15 +27,15 @@ API_HASH = os.environ.get("API_HASH", "578ce3d09fadd539544a327c45b55ee4")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8203006611:AAHJf1Dc5jjIiPW0--AGgbUfK8H-QgVamt8")
 BIN_CHANNEL = int(os.environ.get("BIN_CHANNEL", -1001854240817))
 PORT = int(os.environ.get("PORT", 8000))
-OWNER_ID = 6219290068
+OWNER_ID = int(os.environ.get("OWNER_ID", 6219290068))
 PRO_USERS_FILE = "pro_users.txt"
 REPO_STICKER_ID = "CAACAgUAAxkBAAE9tahpE-Oz4dCOfweAKQE_KU3zO6YzKgACMQADsx6IFV2DVIFED1oBNgQ"
-THUMBNAIL_FILE_ID = "AgACAgUAAxkBAAE9vJdpFKHL4lIezMqiAhL4U86UBU9HFAACcg5rGxoHoVRR8Xe3Z3RrUwEAAwIAA3gAAzYE"  # High quality thumbnail
+THUMBNAIL_FILE_ID = "AgACAgUAAxkBAAE9vJdpFKHL4lIezMqiAhL4U86UBU9HFAACcg5rGxoHoVRR8Xe3Z3RrUwEAAwIAA3gAAzYE"
 
 file_storage = {}
 pro_users = set()
 start_time = datetime.now()
-thumbnail_path = None  # Cache thumbnail path
+thumbnail_path = None
 
 bot = Client(
     "file_bot",
@@ -58,7 +59,6 @@ def generate_link_id():
     return secrets.token_urlsafe(12)
 
 def generate_aria2_command(url: str, filename: str) -> str:
-    """Generate aria2c command with CORRECT parameters"""
     return (
         f'aria2c --header="User-Agent: Mozilla/5.0" --continue=true --summary-interval=1 '
         f'--dir=/storage/emulated/0/Download --out="{filename}" --console-log-level=error '
@@ -68,7 +68,6 @@ def generate_aria2_command(url: str, filename: str) -> str:
     )
 
 def generate_beautiful_response(file_name: str, download_url: str, aria2_cmd: str) -> str:
-    """Professional response with blue clickable URL and code box"""
     return (
         f"✨ **Download Ready!** ✨\n\n"
         f"📂 **File:** `{file_name}`\n"
@@ -97,7 +96,6 @@ def save_pro_users():
 pro_users = load_pro_users()
 
 def format_file_size(bytes_val):
-    """Format bytes to human readable size"""
     if bytes_val == 0:
         return "0 B"
     sizes = ['B', 'KB', 'MB', 'GB']
@@ -107,7 +105,6 @@ def format_file_size(bytes_val):
     return f"{s} {sizes[i]}"
 
 def format_duration(seconds):
-    """Format seconds to human readable duration"""
     if seconds < 60:
         return f"{int(seconds)}s"
     elif seconds < 3600:
@@ -118,13 +115,10 @@ def format_duration(seconds):
         return f"{hours}h {minutes}m"
 
 def create_progress_bar(percentage, length=20):
-    """Create a beautiful Unicode progress bar"""
     filled = int(length * percentage / 100)
-    bar = "█" * filled + "░" * (length - filled)
-    return bar
+    return "█" * filled + "░" * (length - filled)
 
 def format_speed(bps):
-    """Format bytes per second to human readable speed"""
     if bps > 10**6:
         return f"{bps/10**6:.1f} MB/s"
     elif bps > 10**3:
@@ -133,7 +127,6 @@ def format_speed(bps):
         return f"{bps:.0f} B/s"
 
 class ProgressTracker:
-    """Tracks progress for download/upload operations with beautiful UI"""
     def __init__(self, message: Message, file_name: str, operation_name: str):
         self.message = message
         self.file_name = file_name
@@ -143,9 +136,8 @@ class ProgressTracker:
         self.last_current = 0
     
     async def callback(self, current: int, total: int):
-        """Callback for Pyrogram's progress parameter"""
         current_time = time.time()
-        if current_time - self.last_update_time < 0.5:  # Update every 0.5s
+        if current_time - self.last_update_time < 0.5:
             return
         
         percentage = (current / total) * 100
@@ -165,13 +157,12 @@ class ProgressTracker:
         try:
             await self.message.edit_text(progress_text)
         except:
-            pass  # Ignore edit errors
+            pass
         
         self.last_update_time = current_time
         self.last_current = current
 
 async def get_thumbnail(client: Client):
-    """Download and cache thumbnail once"""
     global thumbnail_path
     if thumbnail_path and os.path.exists(thumbnail_path):
         return thumbnail_path
@@ -181,17 +172,16 @@ async def get_thumbnail(client: Client):
     
     try:
         await client.download_media(THUMBNAIL_FILE_ID, file_name=thumbnail_path)
-        LOGGER.info(f"Thumbnail downloaded to {thumbnail_path}")
+        LOGGER.info(f"Thumbnail cached to {thumbnail_path}")
         return thumbnail_path
     except Exception as e:
         LOGGER.error(f"Thumbnail download error: {e}")
         return None
 
 async def download_with_progress(url: str, file_path: str, status_msg: Message, file_name: str):
-    """Download file from URL with real-time progress bar - MAXIMUM SPEED"""
     timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=30, sock_connect=30)
     connector = aiohttp.TCPConnector(
-        limit=16,  # Maximum connections
+        limit=16,
         ttl_dns_cache=300,
         use_dns_cache=True,
         enable_cleanup_closed=True
@@ -211,12 +201,11 @@ async def download_with_progress(url: str, file_path: str, status_msg: Message, 
             last_update_time = time.time()
             
             with open(file_path, 'wb') as f:
-                async for chunk in response.content.iter_chunked(512*1024):  # 512KB chunks for speed
+                async for chunk in response.content.iter_chunked(512*1024):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
                         
-                        # Update progress every 0.5 seconds
                         current_time = time.time()
                         if current_time - last_update_time >= 0.5:
                             percentage = (downloaded / total_size) * 100
@@ -235,7 +224,6 @@ async def download_with_progress(url: str, file_path: str, status_msg: Message, 
                             await status_msg.edit_text(progress_text)
                             last_update_time = current_time
             
-            # Final update
             final_text = (
                 f"✅ **Download Complete!**\n\n"
                 f"📂 **File:** `{file_name}`\n"
@@ -244,19 +232,15 @@ async def download_with_progress(url: str, file_path: str, status_msg: Message, 
             await status_msg.edit_text(final_text)
 
 def generate_screenshots(video_path: str, output_dir: str, file_name: str):
-    """Generate 8 screenshots from video file"""
     try:
-        # Get video duration
         duration_cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{video_path}"'
         duration = float(subprocess.check_output(duration_cmd, shell=True).decode().strip())
         
-        # Generate 8 timestamps (10%, 20%, ..., 80%)
         screenshot_times = [duration * (i+1)/10 for i in range(8)]
         screenshot_paths = []
         
         for i, timestamp in enumerate(screenshot_times):
             ss_path = os.path.join(output_dir, f"ss_{i+1:03d}.jpg")
-            # Generate screenshot at timestamp with high quality
             cmd = f'ffmpeg -ss {timestamp} -i "{video_path}" -frames:v 1 -q:v 1 -vf "scale=1280:-1" "{ss_path}" -y'
             subprocess.run(cmd, shell=True, check=True, capture_output=True)
             screenshot_paths.append(ss_path)
@@ -265,6 +249,15 @@ def generate_screenshots(video_path: str, output_dir: str, file_name: str):
     except Exception as e:
         LOGGER.error(f"Screenshot generation error: {e}")
         raise Exception(f"Failed to generate screenshots: {str(e)}")
+
+def detect_video_file(file_path: str) -> bool:
+    """Detect if file is video using ffprobe"""
+    try:
+        cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{file_path}"'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        return result.returncode == 0 and float(result.stdout.strip()) > 0
+    except:
+        return False
 
 # ==================== COMMAND HANDLERS ====================
 @bot.on_message(filters.command("start") & filters.private)
@@ -276,7 +269,7 @@ async def start_command(client: Client, message: Message):
         f"🆔 **User ID:** `{user.id}`\n"
         f"✅ **Status:** `{'Authorized ✓' if is_authorized(user.id) else 'Not Authorized ✗'}`\n\n"
         f"📤 **Send any file** to generate download link\n\n"
-        f"🌐 **URL Upload:** `/uploadurl <direct_link>` (Max 2GB)\n\n"
+        f"🌐 **URL Upload:** Send direct link or use `/uploadurl <link>` (Max 2GB)\n\n"
         f"📣 **Channel:** Forward files to bin channel for auto-links\n\n"
         f"💡 **Max Size:** 4GB per file | 2GB per URL\n"
         f"⏰ **Link Duration:** 24 hours"
@@ -302,12 +295,15 @@ async def help_command(client: Client, message: Message):
         
     help_text = (
         "📖 **Help Guide**\n\n"
-        "**Direct Bot:**\n   Send file privately → Get instant links\n\n"
-        "**URL Upload:**\n   `/uploadurl <direct_link>` → Download, screenshots & link\n\n"
-        "**Channel Auto-Link:**\n   Forward to bin channel → Bot auto-generates\n\n"
-        "**Admin Commands:**\n"
-        "`/adduser <id>` `/removeuser <id>`\n"
-        "`/listusers` `/stats` `/broadcast <msg>`"
+        "**Auto URL Detection:**\n   Just send a direct download link\n\n"
+        "**Manual Command:**\n   `/uploadurl <direct_link>`\n\n"
+        "**Features:**\n"
+        "✓ Auto-detects URLs in messages\n"
+        "✓ Auto-detects video files (even without .mkv extension)\n"
+        "✓ Max speed downloads\n"
+        "✓ 8 screenshots for videos\n"
+        "✓ Custom thumbnail support\n"
+        "✓ 2GB per URL limit"
     )
     
     await message.reply_text(help_text)
@@ -397,50 +393,53 @@ async def list_pro_users(client: Client, message: Message):
     user_list = "\n".join([f"• `{uid}`" for uid in sorted(pro_users)])
     await message.reply_text(f"📊 **Authorized Users:**\n\n{user_list}")
 
-# ==================== NEW URL UPLOAD COMMAND ====================
-@bot.on_message(filters.command("uploadurl") & filters.private)
-async def upload_url_command(client: Client, message: Message):
+# ==================== URL DETECTION & PROCESSING ====================
+URL_PATTERN = re.compile(r'https?://[^\s]+')
+
+@bot.on_message(filters.private & filters.text & filters.regex(URL_PATTERN) & ~filters.command)
+async def auto_url_handler(client: Client, message: Message):
+    """Automatically detect and process URLs in messages"""
     user_id = message.from_user.id
     
     if not is_authorized(user_id):
         await message.reply_text("⛔ **Access Denied!**\n\n👑 Contact owner: @FILMWORLDOFFICIA")
         return
     
-    if len(message.command) < 2:
-        await message.reply_text("❌ **Usage:** `/uploadurl <direct_file_url>`\n\n⚠️ **Requirements:**\n• Direct download link only\n• Max size: 2GB\n• Video files get 8 screenshots")
+    url_match = URL_PATTERN.search(message.text)
+    if not url_match:
         return
     
-    url = message.command[1]
-    if not url.startswith(('http://', 'https://')):
-        await message.reply_text("❌ **Invalid URL!** Must start with http:// or https://")
+    url = url_match.group(0)
+    
+    if any(url.startswith(cmd) for cmd in ['/start', '/help', '/uploadurl', '/stats', '/adduser', '/removeuser', '/listusers', '/broadcast', '/id']):
         return
     
-    # Extract filename from URL
+    # Initial filename extraction (may not have extension)
     file_name = url.split('/')[-1].split('?')[0] or f"file_{secrets.token_hex(4)}"
+    file_name = re.sub(r'[^\w\-.]', '_', file_name)
     
-    # Check if video file for screenshots
+    # Check if URL *might* be video based on extension
     video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.mpeg', '.ts']
-    is_video = any(file_name.lower().endswith(ext) for ext in video_extensions)
+    has_video_extension = any(file_name.lower().endswith(ext) for ext in video_extensions)
     
-    # Check if ffmpeg is available
-    if is_video:
-        try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=10)
-        except:
-            await message.reply_text("⚠️ **FFmpeg not found!** Screenshots feature requires ffmpeg to be installed on server.")
-            is_video = False
+    # Check ffmpeg
+    ffmpeg_available = True
+    try:
+        subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=10)
+    except:
+        ffmpeg_available = False
     
     # Ask user for upload mode
     mode_text = (
         f"📥 **URL Detected:** `{file_name}`\n\n"
-        f"🎬 **Video File:** `{'Yes' if is_video else 'No'}`\n\n"
+        f"🎬 **Video Extension:** `{'Yes' if has_video_extension else 'No (Will Auto-Detect)'}`\n\n"
         f"**How would you like to upload this?**"
     )
     
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📄 As File", callback_data=f"upload_mode|file|{url}|{file_name}|{int(is_video)}"),
-            InlineKeyboardButton("🎬 As Video", callback_data=f"upload_mode|video|{url}|{file_name}|{int(is_video)}")
+            InlineKeyboardButton("📄 As File", callback_data=f"upload_mode|file|{url}|{file_name}|0"),
+            InlineKeyboardButton("🎬 As Video", callback_data=f"upload_mode|video|{url}|{file_name}|{int(has_video_extension)}")
         ]
     ])
     
@@ -451,8 +450,7 @@ async def upload_url_command(client: Client, message: Message):
 async def upload_mode_callback(client: Client, query: CallbackQuery):
     await query.answer()
     
-    # Parse callback data: upload_mode|mode|url|filename|is_video
-    data = query.data.split('|')
+    data = query.data.split('|', 4)  # Use maxsplit to handle filenames with |
     if len(data) != 5:
         await query.message.edit_text("❌ Invalid selection data")
         return
@@ -460,7 +458,7 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
     mode = data[1]
     url = data[2]
     file_name = data[3]
-    is_video = bool(int(data[4]))
+    has_video_extension = bool(int(data[4]))
     
     await query.message.edit_text("⏳ **Preparing upload...**")
     
@@ -469,17 +467,29 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
         
-        # Download file with progress
+        # Download file
         await download_with_progress(url, file_path, query.message, file_name)
         
-        # Verify file size (2GB limit)
+        # Verify size
         file_size = os.path.getsize(file_path)
         if file_size > 2 * 1024 * 1024 * 1024:
             await query.message.edit_text("❌ **File size exceeds 2GB limit!**")
             return
         
-        # Generate and upload screenshots if video
-        if is_video:
+        # Auto-detect video if no extension
+        is_video = has_video_extension
+        if not has_video_extension and detect_video_file(file_path):
+            is_video = True
+            await query.message.reply_text("🎬 **Auto-detected as video file!**")
+        
+        ffmpeg_available = True
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=10)
+        except:
+            ffmpeg_available = False
+        
+        # Generate screenshots if video and ffmpeg available
+        if is_video and ffmpeg_available:
             await query.message.edit_text("📸 **Generating 8 screenshots...**")
             screenshots_dir = os.path.join(temp_dir, "screenshots")
             os.makedirs(screenshots_dir)
@@ -487,7 +497,6 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
             try:
                 screenshot_paths = generate_screenshots(file_path, screenshots_dir, file_name)
                 
-                # Upload screenshots as media group
                 if screenshot_paths:
                     media_group = []
                     for idx, ss_path in enumerate(screenshot_paths):
@@ -499,7 +508,6 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
                                 )
                             )
                     
-                    # Send screenshots in a single media group
                     if media_group:
                         await client.send_media_group(
                             chat_id=query.message.chat.id,
@@ -509,18 +517,15 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
                 LOGGER.error(f"Screenshot error: {e}")
                 await query.message.reply_text("⚠️ **Failed to generate screenshots**")
         
-        # Upload file to bin channel with progress
+        # Upload to bin channel
         await query.message.edit_text(f"📤 **Uploading as {mode}...**")
         
-        # Get thumbnail for video uploads
         thumb_path = None
         if mode == "video":
             thumb_path = await get_thumbnail(client)
         
-        # Create progress tracker
         progress_tracker = ProgressTracker(query.message, file_name, "📤 Uploading")
         
-        # Upload based on mode
         if mode == "video":
             forwarded = await client.send_video(
                 chat_id=BIN_CHANNEL,
@@ -530,7 +535,7 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
                 supports_streaming=True,
                 progress=progress_tracker.callback
             )
-        else:  # file mode
+        else:
             forwarded = await client.send_document(
                 chat_id=BIN_CHANNEL,
                 document=file_path,
@@ -539,10 +544,9 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
                 progress=progress_tracker.callback
             )
         
-        # Final success message
         await query.message.edit_text("✅ **Upload Complete!**")
         
-        # Generate download link
+        # Generate link
         link_id = generate_link_id()
         file_storage[link_id] = {
             "message_id": forwarded.id,
@@ -560,10 +564,9 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
         
     except Exception as e:
         LOGGER.error(f"URL upload error: {e}")
-        await query.message.edit_text(f"❌ **Error:** `{str(e)}`")
+        await query.message.edit_text(f"❌ **Error:** `{str(e)}`\n\n**Common Fixes:**\n• Ensure URL is accessible\n• Check if link is expired\n• Verify file size < 2GB")
     
     finally:
-        # Cleanup temporary files
         if temp_dir and os.path.exists(temp_dir):
             try:
                 shutil.rmtree(temp_dir)
@@ -577,14 +580,15 @@ async def help_callback(client: Client, query: CallbackQuery):
     
     help_text = (
         "📖 **Quick Help**\n\n"
-        "**How to use:**\n"
-        "1. Forward files to bin channel\n"
-        "2. Bot auto-generates links\n\n"
+        "**Auto URL Detection:**\n   Just send a direct download link\n\n"
+        "**Manual Command:**\n   `/uploadurl <direct_link>`\n\n"
         "**Features:**\n"
-        "✓ 4GB file support\n"
-        "✓ 16 connections\n"
-        "✓ 24-hour links\n\n"
-        "👑 Owner: @FILMWORLDOFFICIA"
+        "✓ Auto-detects URLs in messages\n"
+        "✓ Auto-detects video files (even without extension)\n"
+        "✓ Max speed downloads\n"
+        "✓ 8 screenshots for videos\n"
+        "✓ Custom thumbnail support\n"
+        "✓ 2GB per URL limit"
     )
     
     await query.message.reply_text(help_text)
@@ -676,7 +680,6 @@ async def health_check(request):
     return web.json_response({"status": "healthy"})
 
 async def wake_bot(request):
-    """Keep-alive endpoint to prevent Render sleep"""
     return web.json_response({
         "status": "awake",
         "message": "Bot is alive",
