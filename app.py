@@ -17,14 +17,19 @@ import logging
 API_ID = int(os.environ.get("API_ID", 2819362))
 API_HASH = os.environ.get("API_HASH", "578ce3d09fadd539544a327c45b55ee4")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8203006611:AAHJf1Dc5jjIiPW0--AGgbUfK8H-QgVamt8")
+# CHANGED: New bin channel ID
 BIN_CHANNEL = int(os.environ.get("BIN_CHANNEL", -1001854240817))
 PORT = int(os.environ.get("PORT", 8000))
 OWNER_ID = 6219290068
 PRO_USERS_FILE = "pro_users.txt"
 
+# Sticker ID for Repo button
+REPO_STICKER_ID = "CAACAgUAAxkBAAE9tahpE-Oz4dCOfweAKQE_KU3zO6YzKgACMQADsx6IFV2DVIFED1oBNgQ"
+
 # Initialize
 file_storage = {}
 pro_users = set()
+start_time = datetime.now()
 
 bot = Client(
     "file_bot",
@@ -48,27 +53,30 @@ def generate_link_id():
     return secrets.token_urlsafe(12)
 
 def generate_aria2_command(url: str, filename: str) -> str:
+    """Generate optimized aria2c command"""
     return (
         f'aria2c --header="User-Agent: Mozilla/5.0" --continue=true --summary-interval=1 '
         f'--dir=/storage/emulated/0/Download --out="{filename}" --console-log-level=error '
-        f'--max-connection-per-server=16 --split=16 --min-split-size=1M '
+        f'--max-connection-per-server=32 --split=32 --min-split-size=512K '
         f'--max-concurrent-downloads=8 --max-tries=10 --retry-wait=5 --timeout=60 '
-        f'--check-certificate=false --async-dns=false "{url}"'
+        f'--check-certificate=false --async-dns=false --max-overall-download-limit=0 "{url}"'
     )
 
 def generate_beautiful_response(file_name: str, download_url: str, aria2_cmd: str) -> str:
-    """Generate professional response with full URL and code box"""
+    """Generate professional response with BLUE clickable URL and code box"""
     return (
         f"✨ **Download Ready!** ✨\n\n"
         f"📂 **File:** `{file_name}`\n"
         f"⏱️ **Expires:** `24 hours`\n\n"
         f"🔗 **Direct Download URL:**\n"
-        f"`{download_url}`\n\n"
+        f"[{download_url}]({download_url})\n\n"
         f"⚡ **Aria2 Command:**\n"
         f"```bash\n{aria2_cmd}\n```"
     )
 
-# ==================== PRO USER MANAGEMENT ====================
+def is_authorized(user_id: int) -> bool:
+    return user_id == OWNER_ID or user_id in pro_users
+
 def load_pro_users():
     try:
         with open(PRO_USERS_FILE, 'r') as f:
@@ -81,30 +89,34 @@ def save_pro_users():
         for user_id in sorted(pro_users):
             f.write(f"{user_id}\n")
 
-def is_authorized(user_id: int) -> bool:
-    return user_id == OWNER_ID or user_id in pro_users
-
 pro_users = load_pro_users()
 
 # ==================== COMMAND HANDLERS ====================
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
-    """Professional /start command"""
+    """Professional /start command with 2-button horizontal layout"""
     user = message.from_user
+    is_auth = is_authorized(user.id)
     
     welcome_text = (
         f"👋 **Welcome {user.first_name}!**\n\n"
-        f"🆔 **User ID:** `{user.id}`\n\n"
-        f"✅ **Authorization Status:** {'Authorized ✓' if is_authorized(user.id) else 'Not Authorized ✗'}\n\n"
-        f"📤 **Send any file** to generate a download link\n\n"
+        f"🆔 **User ID:** `{user.id}`\n"
+        f"✅ **Status:** `{'Authorized ✓' if is_auth else 'Not Authorized ✗'}`\n\n"
+        f"📤 **Send any file** to generate download link\n\n"
         f"📣 **Channel Feature:** Forward files to bin channel for auto-links\n\n"
         f"💡 **Supports:** Documents, Videos, Audios, Photos up to 4GB"
     )
     
+    # ⚡ HORIZONTAL BUTTON LAYOUT: 2 buttons per row
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👑 Owner", url="https://t.me/FILMWORLDOFFICIA")],
-        [InlineKeyboardButton("📢 Updates", url="https://t.me/FILMWORLDOFFI")],
-        [InlineKeyboardButton("❓ Help", callback_data="help")]
+        [
+            InlineKeyboardButton("👑 Owner", url="https://t.me/FILMWORLDOFFICIA"),
+            InlineKeyboardButton("📢 Updates", url="https://t.me/FILMWORLDOFFI")
+        ],
+        [
+            InlineKeyboardButton("📦 Repo", callback_data="repo"),
+            InlineKeyboardButton("❓ Help", callback_data="help")
+        ]
     ])
     
     await message.reply_text(welcome_text, reply_markup=keyboard)
@@ -116,12 +128,64 @@ async def help_command(client: Client, message: Message):
         
     help_text = (
         "📖 **Help Guide**\n\n"
-        "**1. Direct Bot Usage:**\n   • Send file directly to bot\n   • Get instant download + Aria2 link\n\n"
-        "**2. Channel Auto-Link:**\n   • Forward files to bin channel\n   • Bot auto-generates links\n\n"
-        "**3. Admin Commands:**\n   • `/adduser 123456` - Add pro user\n   • `/removeuser 123456` - Remove pro user\n   • `/listusers` - List all pro users"
+        "**Direct Bot Usage:**\n   • Send file privately\n   • Get instant download + Aria2 link\n\n"
+        "**Channel Auto-Link:**\n   • Forward to bin channel\n   • Bot auto-generates links\n\n"
+        "**Admin Commands:**\n   • `/adduser 123456` - Add authorized user\n   • `/removeuser 123456` - Remove user\n   • `/listusers` - List all users\n   • `/stats` - Bot statistics\n   • `/broadcast <msg>` - Message all users"
     )
     
     await message.reply_text(help_text)
+
+@bot.on_message(filters.command("id") & filters.private)
+async def get_id_command(client: Client, message: Message):
+    user = message.from_user
+    await message.reply_text(
+        f"🆔 **Your Telegram Details**\n\n"
+        f"**User ID:** `{user.id}`\n"
+        f"**Username:** `@{user.username}`\n" if user.username else "" +
+        f"\n💡 Use this ID to be added as authorized user"
+    )
+
+@bot.on_message(filters.command("stats") & filters.private)
+async def stats_command(client: Client, message: Message):
+    if message.from_user.id != OWNER_ID:
+        await message.reply_text("⛔ **Owner only!**")
+        return
+    
+    uptime = datetime.now() - start_time
+    hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    stats_text = (
+        f"📊 **Bot Statistics**\n\n"
+        f"⏱️ **Uptime:** `{hours}h {minutes}m {seconds}s`\n"
+        f"🔗 **Active Links:** `{len(file_storage)}`\n"
+        f"👑 **Pro Users:** `{len(pro_users)}`\n"
+        f"🤖 **Status:** `Operational ✓`"
+    )
+    
+    await message.reply_text(stats_text)
+
+@bot.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
+async def broadcast_command(client: Client, message: Message):
+    if len(message.command) < 2:
+        await message.reply_text("❌ **Usage:** `/broadcast Your message`")
+        return
+    
+    broadcast_text = message.text.split(' ', 1)[1]
+    all_users = pro_users | {OWNER_ID}
+    success = 0
+    failed = 0
+    
+    status_msg = await message.reply_text("📢 Broadcasting...")
+    
+    for user_id in all_users:
+        try:
+            await client.send_message(user_id, f"📢 **Broadcast:**\n\n{broadcast_text}")
+            success += 1
+        except:
+            failed += 1
+    
+    await status_msg.edit_text(f"✅ **Broadcast Complete!**\n\n📤 Sent: {success}\n❌ Failed: {failed}")
 
 @bot.on_message(filters.command("adduser") & filters.user(OWNER_ID))
 async def add_pro_user(client: Client, message: Message):
@@ -129,36 +193,54 @@ async def add_pro_user(client: Client, message: Message):
         user_id = int(message.command[1])
         pro_users.add(user_id)
         save_pro_users()
-        await message.reply_text(f"✅ **Pro User Added:** `{user_id}`")
-    except:
+        await message.reply_text(f"✅ **Authorized User Added:** `{user_id}`")
+    except (IndexError, ValueError):
         await message.reply_text("❌ **Usage:** `/adduser 123456789`")
-
-@bot.on_message(filters.command("removeuser") & filters.user(OWNER_ID))
-async def remove_pro_user(client: Client, message: Message):
-    try:
-        user_id = int(message.command[1])
-        if user_id in pro_users:
-            pro_users.remove(user_id)
-            save_pro_users()
-            await message.reply_text(f"✅ **Removed Pro User:** `{user_id}`")
-        else:
-            await message.reply_text("❌ User not found!")
-    except:
-        await message.reply_text("❌ **Usage:** `/removeuser 123456789`")
 
 @bot.on_message(filters.command("listusers") & filters.user(OWNER_ID))
 async def list_pro_users(client: Client, message: Message):
     if not pro_users:
-        await message.reply_text("📋 **No pro users added.**")
+        await message.reply_text("📋 **No authorized users.**")
         return
     
     user_list = "\n".join([f"• `{uid}`" for uid in sorted(pro_users)])
-    await message.reply_text(f"📊 **Pro Users:**\n\n{user_list}")
+    await message.reply_text(f"📊 **Authorized Users:**\n\n{user_list}")
+
+# ==================== CALLBACK HANDLERS (FIXED) ====================
+@bot.on_callback_query(filters.regex("^help"))
+async def help_callback(client: Client, query: CallbackQuery):
+    """Handle Help button click"""
+    await query.answer()  # Acknowledge the callback
+    
+    # Show help message
+    help_text = (
+        "📖 **Quick Help**\n\n"
+        "**How to use:**\n"
+        "1. Forward files to bin channel\n"
+        "2. Bot auto-generates links\n\n"
+        "**Features:**\n"
+        "✓ 4GB file support\n"
+        "✓ 32 connections\n"
+        "✓ 24-hour links\n\n"
+        "👑 Owner: @FILMWORLDOFFICIA"
+    )
+    
+    await query.message.reply_text(help_text)
+
+@bot.on_callback_query(filters.regex("^repo"))
+async def repo_callback(client: Client, query: CallbackQuery):
+    """Handle Repo button click - sends sticker"""
+    await query.answer()  # Acknowledge the callback
+    
+    # Send the sticker
+    await query.message.reply_sticker(sticker=REPO_STICKER_ID)
+    
+    # Optionally send a message with the sticker
+    await query.message.reply_text("📦 **Here is the repository sticker!**")
 
 # ==================== FILE HANDLERS ====================
 @bot.on_message(filters.private & (filters.document | filters.video | filters.audio | filters.photo))
 async def private_file_handler(client: Client, message: Message):
-    """Handle files sent directly to bot (owner/pro users only)"""
     user_id = message.from_user.id
     
     if not is_authorized(user_id):
@@ -172,7 +254,6 @@ async def private_file_handler(client: Client, message: Message):
     status_msg = await message.reply_text("⏳ **Processing...**")
     
     try:
-        # Get file
         file = message.document or message.video or message.audio or message.photo
         if message.photo:
             file = message.photo[-1]
@@ -180,10 +261,8 @@ async def private_file_handler(client: Client, message: Message):
         file_name = getattr(file, 'file_name', f'file_{secrets.token_hex(4)}')
         file_size = getattr(file, 'file_size', 0)
         
-        # Forward to bin channel
         forwarded = await message.forward(BIN_CHANNEL)
         
-        # Generate link
         link_id = generate_link_id()
         file_storage[link_id] = {
             "message_id": forwarded.id,
@@ -195,21 +274,17 @@ async def private_file_handler(client: Client, message: Message):
         download_url = f"{base_url}/download/{link_id}"
         aria2_cmd = generate_aria2_command(download_url, file_name)
         
-        # Send beautiful response WITHOUT buttons
+        # Send with NO buttons
         await status_msg.edit_text(
             generate_beautiful_response(file_name, download_url, aria2_cmd)
         )
-        
-        LOGGER.info(f"✅ Link generated: {file_name}")
         
     except Exception as e:
         LOGGER.error(f"❌ Error: {e}")
         await status_msg.edit_text("❌ **Error processing file!**")
 
-# ==================== CHANNEL AUTO-LINK ====================
 @bot.on_message(filters.chat(BIN_CHANNEL) & (filters.document | filters.video | filters.audio | filters.photo))
 async def channel_auto_link(client: Client, message: Message):
-    """Auto-generate link when file is forwarded to bin channel"""
     if message.from_user and message.from_user.is_bot:
         return
     
@@ -222,7 +297,6 @@ async def channel_auto_link(client: Client, message: Message):
         
         file_name = getattr(file, 'file_name', f'file_{secrets.token_hex(4)}')
         
-        # Generate link
         link_id = generate_link_id()
         file_storage[link_id] = {
             "message_id": message.id,
@@ -234,7 +308,6 @@ async def channel_auto_link(client: Client, message: Message):
         download_url = f"{base_url}/download/{link_id}"
         aria2_cmd = generate_aria2_command(download_url, file_name)
         
-        # Send response to channel
         await message.reply_text(
             generate_beautiful_response(file_name, download_url, aria2_cmd)
         )
@@ -248,6 +321,14 @@ async def homepage(request):
 
 async def health_check(request):
     return web.json_response({"status": "healthy"})
+
+async def wake_bot(request):
+    """Keep-alive endpoint to prevent Render sleep"""
+    return web.json_response({
+        "status": "awake",
+        "message": "Bot is alive and listening",
+        "timestamp": datetime.now().isoformat()
+    })
 
 async def download_file(request):
     link_id = request.match_info['link_id']
@@ -287,6 +368,7 @@ def create_web_app():
     app = web.Application()
     app.router.add_get('/', homepage)
     app.router.add_get('/health', health_check)
+    app.router.add_get('/wake', wake_bot)
     app.router.add_get('/download/{link_id}', download_file)
     return app
 
@@ -308,7 +390,8 @@ def run_web_server():
 if __name__ == "__main__":
     LOGGER.info("="*60)
     LOGGER.info("🚀 BOT STARTING")
-    LOGGER.info(f"👑 Owner: {OWNER_ID} | 📊 Pro Users: {len(pro_users)}")
+    LOGGER.info(f"👑 Owner: @FILMWORLDOFFICIA")
+    LOGGER.info(f"📊 Pro Users: {len(pro_users)}")
     LOGGER.info("="*60)
     
     web_thread = threading.Thread(target=run_web_server, daemon=True)
