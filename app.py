@@ -396,9 +396,13 @@ async def list_pro_users(client: Client, message: Message):
 # ==================== URL DETECTION & PROCESSING ====================
 URL_PATTERN = re.compile(r'https?://[^\s]+')
 
-@bot.on_message(filters.private & filters.text & filters.regex(URL_PATTERN) & ~filters.command())
+@bot.on_message(filters.private & filters.text & filters.regex(URL_PATTERN))
 async def auto_url_handler(client: Client, message: Message):
     """Automatically detect and process URLs in messages"""
+    # Skip commands
+    if message.text.startswith('/'):
+        return
+    
     user_id = message.from_user.id
     
     if not is_authorized(user_id):
@@ -410,9 +414,6 @@ async def auto_url_handler(client: Client, message: Message):
         return
     
     url = url_match.group(0)
-    
-    if any(url.startswith(cmd) for cmd in ['/start', '/help', '/uploadurl', '/stats', '/adduser', '/removeuser', '/listusers', '/broadcast', '/id']):
-        return
     
     file_name = url.split('/')[-1].split('?')[0] or f"file_{secrets.token_hex(4)}"
     file_name = re.sub(r'[^\w\-.]', '_', file_name)
