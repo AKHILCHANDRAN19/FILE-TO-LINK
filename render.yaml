@@ -2,8 +2,10 @@ services:
   - type: web
     name: telegram-file-bot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python3 app.py      # ← Must match your filename
+    buildCommand: |
+      apt-get update && apt-get install -y ffmpeg
+      pip install -r requirements.txt
+    startCommand: python3 app.py
     envVars:
       - key: API_ID
         value: 2819362
@@ -13,5 +15,9 @@ services:
         value: 8203006611:AAHJf1Dc5jjIiPW0--AGgbUfK8H-QgVamt8
       - key: BIN_CHANNEL
         value: -1003286196892
+      - key: OWNER_ID
+        value: 6219290068
+      - key: PORT
+        value: 8000
     autoDeploy: true
     plan: free
