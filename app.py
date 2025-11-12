@@ -299,7 +299,7 @@ async def help_command(client: Client, message: Message):
         "**Manual Command:**\n   `/uploadurl <direct_link>`\n\n"
         "**Features:**\n"
         "✓ Auto-detects URLs in messages\n"
-        "✓ Auto-detects video files (even without .mkv extension)\n"
+        "✓ Auto-detects video files (even without extension)\n"
         "✓ Max speed downloads\n"
         "✓ 8 screenshots for videos\n"
         "✓ Custom thumbnail support\n"
@@ -396,7 +396,7 @@ async def list_pro_users(client: Client, message: Message):
 # ==================== URL DETECTION & PROCESSING ====================
 URL_PATTERN = re.compile(r'https?://[^\s]+')
 
-@bot.on_message(filters.private & filters.text & filters.regex(URL_PATTERN) & ~filters.command)
+@bot.on_message(filters.private & filters.text & filters.regex(URL_PATTERN) & ~filters.command())
 async def auto_url_handler(client: Client, message: Message):
     """Automatically detect and process URLs in messages"""
     user_id = message.from_user.id
@@ -414,22 +414,18 @@ async def auto_url_handler(client: Client, message: Message):
     if any(url.startswith(cmd) for cmd in ['/start', '/help', '/uploadurl', '/stats', '/adduser', '/removeuser', '/listusers', '/broadcast', '/id']):
         return
     
-    # Initial filename extraction (may not have extension)
     file_name = url.split('/')[-1].split('?')[0] or f"file_{secrets.token_hex(4)}"
     file_name = re.sub(r'[^\w\-.]', '_', file_name)
     
-    # Check if URL *might* be video based on extension
     video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.3gp', '.mpeg', '.ts']
     has_video_extension = any(file_name.lower().endswith(ext) for ext in video_extensions)
     
-    # Check ffmpeg
     ffmpeg_available = True
     try:
         subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=10)
     except:
         ffmpeg_available = False
     
-    # Ask user for upload mode
     mode_text = (
         f"📥 **URL Detected:** `{file_name}`\n\n"
         f"🎬 **Video Extension:** `{'Yes' if has_video_extension else 'No (Will Auto-Detect)'}`\n\n"
@@ -450,7 +446,7 @@ async def auto_url_handler(client: Client, message: Message):
 async def upload_mode_callback(client: Client, query: CallbackQuery):
     await query.answer()
     
-    data = query.data.split('|', 4)  # Use maxsplit to handle filenames with |
+    data = query.data.split('|', 4)
     if len(data) != 5:
         await query.message.edit_text("❌ Invalid selection data")
         return
@@ -467,16 +463,13 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
         
-        # Download file
         await download_with_progress(url, file_path, query.message, file_name)
         
-        # Verify size
         file_size = os.path.getsize(file_path)
         if file_size > 2 * 1024 * 1024 * 1024:
             await query.message.edit_text("❌ **File size exceeds 2GB limit!**")
             return
         
-        # Auto-detect video if no extension
         is_video = has_video_extension
         if not has_video_extension and detect_video_file(file_path):
             is_video = True
@@ -488,7 +481,6 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
         except:
             ffmpeg_available = False
         
-        # Generate screenshots if video and ffmpeg available
         if is_video and ffmpeg_available:
             await query.message.edit_text("📸 **Generating 8 screenshots...**")
             screenshots_dir = os.path.join(temp_dir, "screenshots")
@@ -517,7 +509,6 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
                 LOGGER.error(f"Screenshot error: {e}")
                 await query.message.reply_text("⚠️ **Failed to generate screenshots**")
         
-        # Upload to bin channel
         await query.message.edit_text(f"📤 **Uploading as {mode}...**")
         
         thumb_path = None
@@ -546,7 +537,6 @@ async def upload_mode_callback(client: Client, query: CallbackQuery):
         
         await query.message.edit_text("✅ **Upload Complete!**")
         
-        # Generate link
         link_id = generate_link_id()
         file_storage[link_id] = {
             "message_id": forwarded.id,
