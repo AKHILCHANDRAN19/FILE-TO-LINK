@@ -50,10 +50,11 @@ def generate_link_id():
     return secrets.token_urlsafe(12)
 
 def generate_aria2_command(url: str, filename: str) -> str:
-    """Generate aria2c command with MAX 16 connections (aria2 limit)"""
+    """Generate aria2c command with CORRECT parameters"""
     return (
         f'aria2c --header="User-Agent: Mozilla/5.0" --continue=true --summary-interval=1 '
         f'--dir=/storage/emulated/0/Download --out="{filename}" --console-log-level=error '
+        # ✅ FIXED: min-split-size=1M (not 512K) and removed speed limit
         f'--max-connection-per-server=16 --split=16 --min-split-size=1M '
         f'--max-concurrent-downloads=8 --max-tries=10 --retry-wait=5 --timeout=60 '
         f'--check-certificate=false --async-dns=false "{url}"'
@@ -104,7 +105,6 @@ async def start_command(client: Client, message: Message):
         f"⏰ **Link Duration:** 24 hours"
     )
     
-    # Horizontal button layout
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("👑 Owner", url="https://t.me/FILMWORLDOFFICIA"),
@@ -125,8 +125,8 @@ async def help_command(client: Client, message: Message):
         
     help_text = (
         "📖 **Help Guide**\n\n"
-        "**1. Direct Bot:**\n   Send file privately → Get instant links\n\n"
-        "**2. Channel Auto-Link:**\n   Forward to bin channel → Bot auto-generates\n\n"
+        "**Direct Bot:**\n   Send file privately → Get instant links\n\n"
+        "**Channel Auto-Link:**\n   Forward to bin channel → Bot auto-generates\n\n"
         "**Admin Commands:**\n"
         "`/adduser <id>` `/removeuser <id>`\n"
         "`/listusers` `/stats` `/broadcast <msg>`"
@@ -231,7 +231,7 @@ async def help_callback(client: Client, query: CallbackQuery):
         "2. Bot auto-generates links\n\n"
         "**Features:**\n"
         "✓ 4GB file support\n"
-        "✓ 16 connections (aria2 max)\n"
+        "✓ 16 connections\n"
         "✓ 24-hour links\n\n"
         "👑 Owner: @FILMWORLDOFFICIA"
     )
