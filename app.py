@@ -2,7 +2,7 @@ import os
 import threading
 import asyncio
 import time
-from datetime import datetime, timedelta  # ✅ FIXED: Added missing import
+from datetime import datetime, timedelta
 from pyrogram import Client, filters, enums
 from pyrogram.types import (
     Message, 
@@ -22,11 +22,8 @@ BIN_CHANNEL = int(os.environ.get("BIN_CHANNEL", -1001854240817))
 PORT = int(os.environ.get("PORT", 8000))
 OWNER_ID = 6219290068
 PRO_USERS_FILE = "pro_users.txt"
-
-# Sticker ID
 REPO_STICKER_ID = "CAACAgUAAxkBAAE9tahpE-Oz4dCOfweAKQE_KU3zO6YzKgACMQADsx6IFV2DVIFED1oBNgQ"
 
-# Initialize
 file_storage = {}
 pro_users = set()
 start_time = datetime.now()
@@ -53,16 +50,18 @@ def generate_link_id():
     return secrets.token_urlsafe(12)
 
 def generate_aria2_command(url: str, filename: str) -> str:
+    """Generate aria2c command with MAX 16 connections (aria2 limit)"""
     return (
         f'aria2c --header="User-Agent: Mozilla/5.0" --continue=true --summary-interval=1 '
         f'--dir=/storage/emulated/0/Download --out="{filename}" --console-log-level=error '
+        # FIXED: Changed from 32 to 16 (aria2 max limit)
         f'--max-connection-per-server=16 --split=16 --min-split-size=512K '
         f'--max-concurrent-downloads=8 --max-tries=10 --retry-wait=5 --timeout=60 '
         f'--check-certificate=false --async-dns=false --max-overall-download-limit=0 "{url}"'
     )
 
 def generate_beautiful_response(file_name: str, download_url: str, aria2_cmd: str) -> str:
-    """Professional response with clickable blue URL and code box"""
+    """Professional response with blue clickable URL and code box"""
     return (
         f"✨ **Download Ready!** ✨\n\n"
         f"📂 **File:** `{file_name}`\n"
@@ -93,7 +92,6 @@ pro_users = load_pro_users()
 # ==================== COMMAND HANDLERS ====================
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
-    """Professional /start with horizontal 2-button layout"""
     user = message.from_user
     is_auth = is_authorized(user.id)
     
@@ -107,7 +105,7 @@ async def start_command(client: Client, message: Message):
         f"⏰ **Link Duration:** 24 hours"
     )
     
-    # ⚡ HORIZONTAL BUTTON LAYOUT
+    # Horizontal button layout
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("👑 Owner", url="https://t.me/FILMWORLDOFFICIA"),
@@ -130,7 +128,9 @@ async def help_command(client: Client, message: Message):
         "📖 **Help Guide**\n\n"
         "**1. Direct Bot:**\n   Send file privately → Get instant links\n\n"
         "**2. Channel Auto-Link:**\n   Forward to bin channel → Bot auto-generates\n\n"
-        "**3. Admin Commands:**\n`/adduser <id>` `/removeuser <id>` `/listusers` `/stats` `/broadcast <msg>`"
+        "**Admin Commands:**\n"
+        "`/adduser <id>` `/removeuser <id>`\n"
+        "`/listusers` `/stats` `/broadcast <msg>`"
     )
     
     await message.reply_text(help_text)
@@ -138,10 +138,12 @@ async def help_command(client: Client, message: Message):
 @bot.on_message(filters.command("id") & filters.private)
 async def get_id_command(client: Client, message: Message):
     user = message.from_user
+    username_text = f"**Username:** `@{user.username}`\n" if user.username else ""
+    
     await message.reply_text(
         f"🆔 **Your Telegram Details**\n\n"
         f"**User ID:** `{user.id}`\n"
-        f"**Username:** `@{user.username}`\n\n"
+        f"{username_text}\n"
         f"💡 Use this ID to be added as authorized user"
     )
 
@@ -196,6 +198,19 @@ async def add_pro_user(client: Client, message: Message):
     except (IndexError, ValueError):
         await message.reply_text("❌ **Usage:** `/adduser 123456789`")
 
+@bot.on_message(filters.command("removeuser") & filters.user(OWNER_ID))
+async def remove_pro_user(client: Client, message: Message):
+    try:
+        user_id = int(message.command[1])
+        if user_id in pro_users:
+            pro_users.remove(user_id)
+            save_pro_users()
+            await message.reply_text(f"✅ **Removed:** `{user_id}`")
+        else:
+            await message.reply_text("❌ User not found!")
+    except (IndexError, ValueError):
+        await message.reply_text("❌ **Usage:** `/removeuser 123456789`")
+
 @bot.on_message(filters.command("listusers") & filters.user(OWNER_ID))
 async def list_pro_users(client: Client, message: Message):
     if not pro_users:
@@ -205,7 +220,7 @@ async def list_pro_users(client: Client, message: Message):
     user_list = "\n".join([f"• `{uid}`" for uid in sorted(pro_users)])
     await message.reply_text(f"📊 **Authorized Users:**\n\n{user_list}")
 
-# ==================== CALLBACK HANDLERS (FIXED) ====================
+# ==================== CALLBACK HANDLERS ====================
 @bot.on_callback_query(filters.regex("^help"))
 async def help_callback(client: Client, query: CallbackQuery):
     await query.answer()
@@ -217,7 +232,7 @@ async def help_callback(client: Client, query: CallbackQuery):
         "2. Bot auto-generates links\n\n"
         "**Features:**\n"
         "✓ 4GB file support\n"
-        "✓ 32 connections\n"
+        "✓ 16 connections (aria2 max)\n"
         "✓ 24-hour links\n\n"
         "👑 Owner: @FILMWORLDOFFICIA"
     )
@@ -227,8 +242,6 @@ async def help_callback(client: Client, query: CallbackQuery):
 @bot.on_callback_query(filters.regex("^repo"))
 async def repo_callback(client: Client, query: CallbackQuery):
     await query.answer()
-    
-    # Send sticker
     await query.message.reply_sticker(sticker=REPO_STICKER_ID)
     await query.message.reply_text("📦 **Repository Sticker!**")
 
