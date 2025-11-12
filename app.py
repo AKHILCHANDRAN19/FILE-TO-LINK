@@ -56,7 +56,7 @@ def generate_aria2_command(url: str, filename: str) -> str:
     return (
         f'aria2c --header="User-Agent: Mozilla/5.0" --continue=true --summary-interval=1 '
         f'--dir=/storage/emulated/0/Download --out="{filename}" --console-log-level=error '
-        f'--max-connection-per-server=32 --split=32 --min-split-size=512K '
+        f'--max-connection-per-server=16 --split=16 --min-split-size=512K '
         f'--max-concurrent-downloads=8 --max-tries=10 --retry-wait=5 --timeout=60 '
         f'--check-certificate=false --async-dns=false --max-overall-download-limit=0 "{url}"'
     )
